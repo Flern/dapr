@@ -373,3 +373,75 @@ func (c *mockConnection) Invoke(ctx context.Context, method string, args interfa
 func (c *mockConnection) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	return nil, nil
 }
+
+// Test dynamic connection creation when stream limit is reached
+func TestConnectionPoolDynamicCreation(t *testing.T) {
+	var createdConnCount int
+	var mu sync.Mutex
+
+	createFn := func() (grpc.ClientConnInterface, error) {
+		mu.Lock()
+		createdConnCount++
+		mu.Unlock()
+
+		mockConn := &mockClientConn{
+			connID: createdConnCount,
+		}
+		return mockConn, nil
+	}
+
+	// Create pool with max 2 connections
+	pool := NewConnectionPool(30*time.Second, 0, 2)
+
+	// Get first connection (should create new one)
+	conn1, err := pool.Get(createFn)
+	require.NoError(t, err)
+	require.NotNil(t, conn1)
+	require.Equal(t, 1, createdConnCount)
+
+	// Saturate first connection (100 concurrent streams)
+	pool.lock.Lock()
+	pool.connections[0].referenceCount = 100
+	pool.lock.Unlock()
+
+	// Try to get another connection (should create second one due to saturation)
+	conn2, err := pool.Get(createFn)
+	require.NoError(t, err)
+	require.NotNil(t, conn2)
+	require.Equal(t, 2, createdConnCount)
+
+	// Both connections should be different
+	require.NotEqual(t, conn1, conn2)
+
+	// Saturate second connection
+	pool.lock.Lock()
+	pool.connections[1].referenceCount = 100
+	pool.lock.Unlock()
+
+	// Try to get another connection (should NOT create third one - max is 2)
+	conn3, err := pool.Get(createFn)
+	require.NoError(t, err)
+	// Should return nil because we've hit the limit
+	require.Nil(t, conn3)
+	require.Equal(t, 2, createdConnCount) // Still 2, no new connection created
+}
+
+// Test unlimited connections (maxConnections = -1)
+func TestConnectionPoolUnlimitedConnections(t *testing.T) {
+	var createdConnCount int
+	var mu sync.Mutex
+
+	createFn := func() (grpc.ClientConnInterface, error) {
+		mu.Lock()
+		createdConnCount++
+		mu.Unlock()
+
+		mockConn := &mockClientConn{
+			connID: createdConnCount,
+		}
+		return mockConn, nil
+	}
+
+	// Create pool with unlimited connections (-1)
+	pool := NewConnectionPool(30*time.Second, 0, -1)
+	
