@@ -51,43 +51,15 @@ type ConnCreatorFn = func() (grpc.ClientConnInterface, error)
 
 // AppChannelConfig contains the configuration for the app channel.
 type AppChannelConfig struct {
-	Port               int
-	MaxConcurrency     int
-	TracingSpec        config.TracingSpec
-	EnableTLS          bool
-	MaxRequestBodySize int // In bytes
-	ReadBufferSize     int // In bytes
-	BaseAddress        string
-	AppAPIToken        string
+	Port                    int
+	MaxConcurrency          int
+	TracingSpec             config.TracingSpec
+	EnableTLS               bool
+	MaxRequestBodySize      int // In bytes
+	ReadBufferSize          int // In bytes
+	BaseAddress             string
+	AppAPIToken             string
 	MaxConnectionsPerTarget int // -1 = unlimited (default)
-}
-
-// Manager is a wrapper around gRPC connection pooling.
-	"github.com/dapr/dapr/pkg/modes"
-	"github.com/dapr/dapr/pkg/security"
-	securityConsts "github.com/dapr/dapr/pkg/security/consts"
-)
-
-const (
-	// needed to load balance requests for target services with multiple endpoints, ie. multiple instances.
-	grpcServiceConfig = `{"loadBalancingPolicy":"round_robin"}`
-	dialTimeout       = 30 * time.Second
-	maxConnIdle       = 3 * time.Minute
-)
-
-// ConnCreatorFn is a function that returns a gRPC connection
-type ConnCreatorFn = func() (grpc.ClientConnInterface, error)
-
-// AppChannelConfig contains the configuration for the app channel.
-type AppChannelConfig struct {
-	Port               int
-	MaxConcurrency     int
-	TracingSpec        config.TracingSpec
-	EnableTLS          bool
-	MaxRequestBodySize int // In bytes
-	ReadBufferSize     int // In bytes
-	BaseAddress        string
-	AppAPIToken        string
 }
 
 // Manager is a wrapper around gRPC connection pooling.
@@ -106,11 +78,16 @@ type Manager struct {
 
 // NewManager returns a new grpc manager.
 func NewManager(sec security.Handler, mode modes.DaprMode, channelConfig *AppChannelConfig) *Manager {
+	maxConns := -1 // default unlimited
+	if channelConfig != nil && channelConfig.MaxConnectionsPerTarget > 0 {
+		maxConns = channelConfig.MaxConnectionsPerTarget
+	}
+
 	return &Manager{
-		remoteConns:   NewRemoteConnectionPool(),
+		remoteConns:   NewRemoteConnectionPool(maxConns),
 		mode:          mode,
 		channelConfig: channelConfig,
-		localConn:     NewConnectionPool(maxConnIdle, 1),
+		localConn:     NewConnectionPool(maxConnIdle, 1, maxConns),
 		sec:           sec,
 		closeCh:       make(chan struct{}),
 	}
