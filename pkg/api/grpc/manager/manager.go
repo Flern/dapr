@@ -132,7 +132,7 @@ func (g *Manager) GetAppClient() (grpc.ClientConnInterface, func(bool), error) {
 
 // SetAppClientConn is used by tests to override the default connection
 func (g *Manager) SetAppClientConn(conn grpc.ClientConnInterface) {
-	g.localConn.doRegister(conn)
+	g.localConn.Register(conn)
 }
 
 func (g *Manager) defaultLocalConnCreateFn() (grpc.ClientConnInterface, error) {
